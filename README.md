@@ -10,6 +10,8 @@ although many of these models are simple, and may not get you to top level of th
 
 each model has a test function under model class. you can run it to performance toy task first. the model is indenpendent from dataset.
 
+<a href='https://github.com/brightmart/text_classification/blob/master/multi-label-classification.pdf'>check here for formal report of large scale multi-label text classification with deep learning</a>
+
 serveral modes here can also be used for modelling question answering (with or without context), or to do sequences generating. 
 
 we explore two seq2seq model(seq2seq with attention,transformer-attention is all you need) to do text classification. and these two models can also be used for sequences generating and other tasks. if you task is a multi-label classification, you can cast the problem to sequences generating.
@@ -18,7 +20,7 @@ we implement two memory network. one is dynamic memory network. previously it re
 
 the second memory network we implemented is recurrent entity network: tracking state of the world. it has blocks of key-value pairs as memory, run in parallel, which achieve new state of art. it can be used for modelling question answering with contexts(or history). for example, you can let the model to read some sentences(as context), and ask a question(as query), then ask the model to predict an answer; if you feed story same as query, then it can do classification task. 
 
-if you need some sample data, you can find it in closed issues.
+if you need some sample data and word embedding pertrained on word2vec, you can find it in closed issues, such as:<a href="https://github.com/brightmart/text_classification/issues/3">issue 3</a>
 
 if you want to know more detail about dataset of text classification or task these models can be used, one of choose is below:
 https://biendata.com/competition/zhihu/
@@ -36,6 +38,10 @@ Models:
 7) Transformer("Attend Is All You Need")
 8) Dynamic Memory Network
 9) EntityNetwork:tracking state of the world
+10) Ensemble models
+11) Stacking for single model level (TODO): 
+
+    for a single model, stack identical models together. each layer is a model. the result will be based on logits added together. the only connection between layers are label's weights. the front layer's prediction error rate of each label will become weight for the next layers. those labels with high error rate will have big weight. so later layer's will pay more attention to those mis-predicted labels, and try to fix previous mistake of former layer. as a result, we will get a much strong model.
 
 and other models:
 
@@ -48,18 +54,31 @@ and other models:
 Performance
 -------------------------------------------------------------------------
 
-(mulit-label label prediction task,ask to prediction top5, 3 million training data,full mark:0.5)
+(mulit-label label prediction task,ask to prediction top5, 3 million training data,full score:0.5)
 
-Model   | fastText|TextCNN|TextRNN| RCNN | HierAtteNet|Seq2seqAttn|EntityNet|DynamicMemory
----     | ---     | ---   | ---   |---   |---         |---        |---      |---
-Score   | 0.362   |  0.405| 0.358 | 0.395| 0.398      |0.322      |0.400    |0.392
-Training| 10m     |  2h   |10h    | 2h   | 2h         |3h         |3h       |5h
--------------------------------------------------------------------------------------------
+Model   | fastText|TextCNN|TextRNN| RCNN | HierAtteNet|Seq2seqAttn|EntityNet|DynamicMemory|Transformer
+---     | ---     | ---   | ---   |---   |---         |---        |---      |---          |----
+Score   | 0.362   |  0.405| 0.358 | 0.395| 0.398      |0.322      |0.400    |0.392        |0.322
+Training| 10m     |  2h   |10h    | 2h   | 2h         |3h         |3h       |5h           |7h
+--------------------------------------------------------------------------------------------------
+
+ Ensemble of TextCNN,EntityNet,DynamicMemory: 0.411
+ 
+ Ensemble EntityNet,DynamicMemory: 0.403
+ 
+ --------------------------------------------------------------------------------------------------
+ 
  Notice: 
- 'm' stand for minutes; 'h' stand for hours.
+ 
+ 'm' stand for minutes; 'h' stand for hours;
+ 
 'HierAtteNet' means Hierarchical Attention Networkk;
+
 'Seq2seqAttn' means Seq2seq with attention;
+
 'DynamicMemory' means DynamicMemoryNetwork;
+
+'Transformer' stand for model from 'Attention Is All You Need'.
 
 Useage:
 -------------------------------------------------------------------------------------------------------
@@ -91,8 +110,11 @@ Models Detail:
 1.fastText:  
 -------------
 implmentation of <a href="https://arxiv.org/abs/1607.01759">Bag of Tricks for Efficient Text Classification</a>
+
+after embed each word in the sentence, this word representations are then averaged into a text representation, which is in turn fed to a linear classifier.it use softmax function to compute the probability distribution over the predefined classes. then cross entropy is used to compute loss. bag of word representation does not consider word order. in order to take account of word order, n-gram features is used to capture some partial information about the local word order; when the number of classes is large, computing the linear classifier is computational expensive. so it usehierarchical softmax to speed training process.
 1) use bi-gram and/or tri-gram
 2) use NCE loss to speed us softmax computation(not use hierarchy softmax as original paper)
+
 result: performance is as good as paper, speed also very fast.
 
 check: p5_fastTextB_model.py
@@ -101,14 +123,23 @@ check: p5_fastTextB_model.py
 
 2.TextCNN:
 -------------
-implementation of <a href="http://www.aclweb.org/anthology/D14-1181"> Convolutional Neural Networks for Sentence Classification </a>
+Implementation of <a href="http://www.aclweb.org/anthology/D14-1181"> Convolutional Neural Networks for Sentence Classification </a>
 
 Structure:embedding--->conv--->max pooling--->fully connected layer-------->softmax
 
-check: p7_TextCNN_model.py
+Check: p7_TextCNN_model.py
 
-in order to get very good result with TextCNN, you also need to read carefully about this paper <a href="https://arxiv.org/abs/1510.03820">A Sensitivity Analysis of (and Practitioners' Guide to) Convolutional Neural Networks for Sentence Classification</a>: it give you some insights of things that can affect performance. although you need to  change some settings according to your specific task.
+In order to get very good result with TextCNN, you also need to read carefully about this paper <a href="https://arxiv.org/abs/1510.03820">A Sensitivity Analysis of (and Practitioners' Guide to) Convolutional Neural Networks for Sentence Classification</a>: it give you some insights of things that can affect performance. although you need to  change some settings according to your specific task.
 
+Convolutional Neural Network is main building box for solve problems of computer vision. Now we will show how CNN can be used for NLP, in in particular, text classification. Sentence length will be different from one to another. So we will use pad to get fixed length, n. For each token in the sentence, we will use word embedding to get a fixed dimension vector, d. So our input is a 2-dimension matrix:(n,d). This is similar with image for CNN. 
+
+Firstly, we will do convolutional operation to our input. It is a element-wise multiply between filter and part of input. We use k number of filters, each filter size is a 2-dimension matrix (f,d). Now the output will be k number of lists. Each list has a length of n-f+1. each element is a scalar. Notice that the second dimension will be always the dimension of word embedding. We are using different size of filters to get rich features from text inputs. And this is something similar with n-gram features. 
+
+Secondly, we will do max pooling for the output of convolutional operation. For k number of lists, we will get k number of scalars. 
+
+Thirdly, we will concatenate scalars to form final features. It is a fixed-size vector. And it is independent from the size of filters we use.
+
+Finally, we will use linear layer to project these features to per-defined labels.
 
 -------------------------------------------------------------------------
 
@@ -183,7 +214,7 @@ Implementation of <a href="https://www.cs.cmu.edu/~diyiy/docs/naacl16.pdf">Hiera
 
 Structure:
 
-1)embedding 
+1) embedding 
 
 2) Word Encoder: word level bi-directional GRU to get rich representation of words
 
@@ -195,6 +226,25 @@ Structure:
 
 5) FC+Softmax
 
+In NLP, text classification can be done for single sentence, but it can also be used for multiple sentences. we may call it document classification. Words are form to sentence. And sentence are form to document. In this circumstance, there may exists a intrinsic structure. So how can we model this kinds of task? Does all parts of document are equally relevant? And how we determine which part are more important than another?
+
+It has two unique features: 
+
+1)it has a hierarchical structure that reflect the hierarchical structure of documents; 
+
+2)it has two levels of attention mechanisms used at the word and sentence-level. it enable the model to capture important information in different levels.
+
+Word Encoder:
+For each words in a sentence, it is embedded into word vector in distribution vector space. It use a bidirectional GRU to encode the sentence. By concatenate vector from two direction, it now can form a representation of the sentence, which also capture contextual information.
+
+Word Attention:
+Same words are more important than another for the sentence. So attention mechanism is used. It first use one layer MLP to get uit hidden representation of the sentence, then measure the importance of the word as the similarity of uit with a word level context vector uw and get a normalized importance through a softmax function. 
+
+Sentence Encoder: 
+for sentence vectors, bidirectional GRU is used to encode it. Similarly to word encoder.
+
+Sentence Attention: 
+sentence level vector is used to measure importance among sentences. Similarly to word attention.
 
 Input of data: 
 
@@ -250,7 +300,8 @@ V.Notices:
 
 10.Transformer("Attention Is All You Need")
 -------------
-Status: Just finish main part, and able to generate reverse order of its sequences in toy task. you can check it by running test function in the model. however, i was not able to get useful result in real task yet.
+Status: it was able to do task classification. and able to generate reverse order of its sequences in toy task. you can check it by running test function in the model. check: a2_train_classification.py(train) or a2_transformer_classification.py(model)
+
 we do it in parallell style.layer normalization,residual connection, and mask are also used in the model. 
 
 For every building blocks, we include a test function in the each file below, and we've test each small piece successfully.
@@ -281,7 +332,11 @@ Main Take away from this model:
 
 1) multi-head self attention: use self attention, linear transform multi-times to get projection of key-values, then do ordinary attention; 2) some tricks to improve performance(residual connection,position encoding, poistion feed forward, label smooth, mask to ignore things we want to ignore).
 
-for detail of the model, please check: a2_transformer.py
+Use this model to do task classification:
+
+Here we only use encode part for task classification, removed resdiual connection, used only 1 layer.no need to use mask. we use multi-head attention and postionwise feed forward to extract features of input sentence, then use linear layer to project it to get logits.
+
+for detail of the model, please check: a2_transformer_classification.py
 
 -------------------------------------------------------------------------
 
@@ -375,8 +430,25 @@ TODO
 
 4.Adversarial Training Methods For Semi-supervised Text Classification
 
--------------------------------------------------------------------------
+5.Ensemble Models
 
+
+Conclusion:
+-------------------------------------------------------------------------
+During the process of doing large scale of multi-label classification, serveral lessons has been learned, and some list as below:
+
+1) What is most important thing to reach a high accuracy? 
+It depend the task you are doing. From the task we conducted here, we believe that ensemble models based on models trained from multiple features including word, character for title and description can help to reach very high accuarcy; However, in some cases,as just alphaGo Zero demonstrated, algorithm is more important then data or computational power, in fact alphaGo Zero did not use any humam data. 
+
+2) Is there a ceiling for any specific model or algorithm?
+The answer is yes. lots of different models were used here, we found many models have similiar performances, even though there are quite different in structure. In some extent, the difference of performance is not so big.
+
+3) Is case study of error useful?
+I think it is quite useful especially when you have done many different things, but reached a limit. For example, by doing case study, you can find labels that models can make correct prediction, and where they make mistakes. And to imporove performance by  increasing weights of these wrong predicted labels or finding potential errors from data.
+
+4) How can we become expert in a specific of Machine Learning?
+In my opinion,join a machine learning competation or begin a task with lots of data, then read papers and implement some, is a good starting point. So we will have some really experience and ideas of handling specific task, and know the challenges of it.
+But what's more important is that we should not only follow ideas from papers, but to explore some new ideas we think may help to slove the problem. For example, by changing structures of classic models or even invent some new structures, we may able to tackle the problem in a much better way as it may more suitable for task we are doing.
 
 Reference:
 -------------------------------------------------------------------------------------------------------
@@ -399,6 +471,8 @@ Reference:
 9.Ask Me Anything:Dynamic Memory Networks for Natural Language Processing
 
 10.Tracking the state of world with recurrent entity networks
+
+11.Ensemble Selection from Libraries of Models
 
 
 -------------------------------------------------------------------------
